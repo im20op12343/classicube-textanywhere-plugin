@@ -1,7 +1,6 @@
 # classicube-textanywhere-plugin
 Put text anywhere on the screen.
 
-## Compiling
 #### Setup
 
 1) Create `ClassiCube.exe` by either:
@@ -18,3 +17,15 @@ Put text anywhere on the screen.
 `x86_64-w64-mingw32-gcc TextAWPlugin.c -o text-win64.dll -s -shared -L . -lClassiCube`
 
 Then put `text-win64.dll` into your game's `plugins` folder. Done.
+
+## How to use
+Usage: `/client help text`
+For adding `/client text add <id1> <x> <y> <scale> <rotation> <text>`
+For editing `/client text add <id1> <modified x> <modified y> <modifed scale> <modified rotation> <modified text>`
+For removing `/client text remove <id>`
+For clearing every single one `/client text clear`
+For servers its `&7text add/remove/clear`
+
+### Example
+
+You can do `/client text add 1 0.5 0.1 1 0 &eExample`
