@@ -1,3 +1,4 @@
+
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include "src/PluginAPI.h"
@@ -18,7 +19,8 @@
 #include <stdint.h>
 
 #define MAX_TEXT_ITEMS 16
-#define HOOK_SIZE 12
+#define JUMP_SIZE 12
+#define HOOK_SIZE 15
 
 struct DynamicText {
     cc_bool active;
@@ -32,6 +34,7 @@ static struct DynamicText textList[MAX_TEXT_ITEMS];
 static GfxResourceID text_vb = 0;
 
 typedef void (*Chat_AddOf_Fn)(const cc_string* text, int msgType);
+
 static Chat_AddOf_Fn Original_Chat_AddOf = NULL;
 static unsigned char OriginalBytes[HOOK_SIZE];
 static void* Trampoline = NULL;
@@ -44,28 +47,36 @@ static void Chat_AddStatic(const char* text) {
 
 static struct DynamicText* FindOrCreateText(int id) {
     int i;
+
     for (i = 0; i < MAX_TEXT_ITEMS; i++) {
-        if (textList[i].active && textList[i].id == id) return &textList[i];
+        if (textList[i].active && textList[i].id == id)
+            return &textList[i];
     }
+
     for (i = 0; i < MAX_TEXT_ITEMS; i++) {
         if (!textList[i].active) {
             struct DynamicText* item = &textList[i];
+
             item->active = true;
             item->id = id;
             item->x = 0.5f;
             item->y = 0.5f;
             item->scale = 1.0f;
             item->angle = 0.0f;
+
             String_InitArray(item->text, item->textBuffer);
             item->text.length = 0;
+
             return item;
         }
     }
+
     return NULL;
 }
 
 static void RemoveText(int id) {
     int i;
+
     for (i = 0; i < MAX_TEXT_ITEMS; i++) {
         if (textList[i].active && textList[i].id == id) {
             textList[i].active = false;
@@ -77,14 +88,18 @@ static void RemoveText(int id) {
 
 static void ClearTexts(void) {
     int i;
+
     for (i = 0; i < MAX_TEXT_ITEMS; i++) {
         textList[i].active = false;
         textList[i].text.length = 0;
     }
 }
 
-static cc_bool ProcessTextArgs(const cc_string* args, int argsCount, cc_bool showErrors) {
+static cc_bool ProcessTextArgs(
+    const cc_string* args, int argsCount, cc_bool showErrors
+) {
     cc_string sub;
+
     if (argsCount < 1) return false;
     sub = args[0];
 
@@ -93,7 +108,8 @@ static cc_bool ProcessTextArgs(const cc_string* args, int argsCount, cc_bool sho
         struct DynamicText* item;
 
         if (argsCount < 7) {
-            if (showErrors) Chat_AddStatic("&eUsage: text add [id] [x] [y] [scale] [angle] [message]");
+            if (showErrors)
+                Chat_AddStatic("&eUsage: text add [id] [x] [y] [scale] [angle] [message]");
             return false;
         }
 
@@ -113,15 +129,18 @@ static cc_bool ProcessTextArgs(const cc_string* args, int argsCount, cc_bool sho
             !Convert_ParseFloat(&args[4], &item->scale) ||
             !Convert_ParseFloat(&args[5], &item->angle)) {
             item->active = false;
-            if (showErrors) Chat_AddStatic("&eInvalid numbers in text arguments.");
+            if (showErrors)
+                Chat_AddStatic("&eInvalid numbers in text arguments.");
             return false;
         }
 
         item->text.length = 0;
+
         for (i = 6; i < argsCount; i++) {
             if (i > 6) String_Append(&item->text, ' ');
             String_AppendString(&item->text, &args[i]);
         }
+
         return true;
     }
 
@@ -154,16 +173,19 @@ static cc_bool ParseServerText(const cc_string* message) {
     cc_string str, command, args[16];
     int argsCount;
 
-    if (!message || !message->buffer || message->length <= 0) return false;
+    if (!message || !message->buffer || message->length <= 0)
+        return false;
 
     str = *message;
 
-    while (str.length >= 2 && (str.buffer[0] == '&' || str.buffer[0] == '%')) {
+    while (str.length >= 2 &&
+           (str.buffer[0] == '&' || str.buffer[0] == '%')) {
         str.buffer += 2;
         str.length -= 2;
     }
 
-    while (str.length > 0 && (str.buffer[0] == ' ' || str.buffer[0] == '\t')) {
+    while (str.length > 0 &&
+           (str.buffer[0] == ' ' || str.buffer[0] == '\t')) {
         str.buffer++;
         str.length--;
     }
@@ -173,7 +195,9 @@ static cc_bool ParseServerText(const cc_string* message) {
         str.buffer[1] != 'e' ||
         str.buffer[2] != 'x' ||
         str.buffer[3] != 't' ||
-        str.buffer[4] != ' ') return false;
+        str.buffer[4] != ' ') {
+        return false;
+    }
 
     command.buffer = str.buffer + 5;
     command.length = str.length - 5;
@@ -184,12 +208,16 @@ static cc_bool ParseServerText(const cc_string* message) {
 }
 
 static void Hooked_Chat_AddOf(const cc_string* text, int msgType) {
-    if (msgType == MSG_TYPE_NORMAL && text && ParseServerText(text)) return;
-    Original_Chat_AddOf(text, msgType);
+    if (msgType == MSG_TYPE_NORMAL && text && ParseServerText(text))
+        return;
+
+    if (Original_Chat_AddOf)
+        Original_Chat_AddOf(text, msgType);
 }
 
 static void WriteAbsoluteJump(unsigned char* at, void* destination) {
     uintptr_t address = (uintptr_t)destination;
+
     at[0] = 0x48;
     at[1] = 0xB8;
     memcpy(at + 2, &address, sizeof(address));
@@ -203,10 +231,12 @@ static cc_bool InstallChatHook(void) {
     DWORD oldProtect, tempProtect;
     unsigned char* trampoline;
 
-    if (InterlockedCompareExchange(&HookInstalled, 1, 0) != 0) return true;
+    if (InterlockedCompareExchange(&HookInstalled, 1, 0) != 0)
+        return true;
 
     module = GetModuleHandleA("ClassiCube.dll");
     if (!module) module = GetModuleHandleA(NULL);
+
     if (!module) {
         InterlockedExchange(&HookInstalled, 0);
         return false;
@@ -218,21 +248,39 @@ static cc_bool InstallChatHook(void) {
         return false;
     }
 
+    /*
+     * For the inspected x64 binary, the first 15 bytes are complete
+     * instructions:
+     * push rbp
+     * mov rbp, rsp
+     * sub rsp, 0x30
+     * mov [rbp+0x10], rcx
+     * mov [rbp+0x18], edx
+     */
     memcpy(OriginalBytes, target, HOOK_SIZE);
 
-    trampoline = (unsigned char*)VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    trampoline = (unsigned char*)VirtualAlloc(
+        NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE
+    );
+
     if (!trampoline) {
         InterlockedExchange(&HookInstalled, 0);
         return false;
     }
 
     memcpy(trampoline, OriginalBytes, HOOK_SIZE);
-    WriteAbsoluteJump(trampoline + HOOK_SIZE, (unsigned char*)target + HOOK_SIZE);
+
+    WriteAbsoluteJump(
+        trampoline + HOOK_SIZE,
+        (unsigned char*)target + HOOK_SIZE
+    );
 
     Trampoline = trampoline;
     Original_Chat_AddOf = (Chat_AddOf_Fn)Trampoline;
 
-    if (!VirtualProtect(target, HOOK_SIZE, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+    if (!VirtualProtect(
+        target, HOOK_SIZE, PAGE_EXECUTE_READWRITE, &oldProtect
+    )) {
         VirtualFree(trampoline, 0, MEM_RELEASE);
         Trampoline = NULL;
         Original_Chat_AddOf = NULL;
@@ -241,8 +289,14 @@ static cc_bool InstallChatHook(void) {
     }
 
     WriteAbsoluteJump((unsigned char*)target, (void*)Hooked_Chat_AddOf);
+
+    /* The jump is 12 bytes; pad the remaining 3 overwritten bytes. */
+    memset((unsigned char*)target + JUMP_SIZE, 0x90,
+           HOOK_SIZE - JUMP_SIZE);
+
     FlushInstructionCache(GetCurrentProcess(), target, HOOK_SIZE);
     VirtualProtect(target, HOOK_SIZE, oldProtect, &tempProtect);
+
     return true;
 }
 
@@ -251,28 +305,37 @@ static void RemoveChatHook(void) {
     void* target;
     DWORD oldProtect, tempProtect;
 
-    if (InterlockedCompareExchange(&HookInstalled, 0, 1) != 1) return;
+    if (InterlockedCompareExchange(&HookInstalled, 0, 1) != 1)
+        return;
 
     module = GetModuleHandleA("ClassiCube.dll");
     if (!module) module = GetModuleHandleA(NULL);
+
     if (!module) return;
 
     target = (void*)GetProcAddress(module, "Chat_AddOf");
     if (!target) return;
 
-    if (!VirtualProtect(target, HOOK_SIZE, PAGE_EXECUTE_READWRITE, &oldProtect)) return;
+    if (!VirtualProtect(
+        target, HOOK_SIZE, PAGE_EXECUTE_READWRITE, &oldProtect
+    )) {
+        InterlockedExchange(&HookInstalled, 1);
+        return;
+    }
 
     memcpy(target, OriginalBytes, HOOK_SIZE);
     FlushInstructionCache(GetCurrentProcess(), target, HOOK_SIZE);
     VirtualProtect(target, HOOK_SIZE, oldProtect, &tempProtect);
 
     if (Trampoline) VirtualFree(Trampoline, 0, MEM_RELEASE);
+
     Trampoline = NULL;
     Original_Chat_AddOf = NULL;
 }
 
 static void OnContextLost(void* obj) {
     (void)obj;
+
     if (text_vb) {
         Gfx_DeleteVb(&text_vb);
         text_vb = 0;
@@ -281,11 +344,16 @@ static void OnContextLost(void* obj) {
 
 static void OnContextRecreated(void* obj) {
     (void)obj;
-    if (!text_vb) text_vb = Gfx_CreateDynamicVb(VERTEX_FORMAT_TEXTURED, 4);
+
+    if (!text_vb)
+        text_vb = Gfx_CreateDynamicVb(VERTEX_FORMAT_TEXTURED, 4);
 }
 
-static void CalcOrthoMatrix(struct Matrix* m, float width, float height, float zNear, float zFar) {
+static void CalcOrthoMatrix(
+    struct Matrix* m, float width, float height, float zNear, float zFar
+) {
     memset(m, 0, sizeof(struct Matrix));
+
     m->row1.x = 2.0f / width;
     m->row2.y = -2.0f / height;
     m->row3.z = 1.0f / (zNear - zFar);
@@ -297,6 +365,7 @@ static void CalcOrthoMatrix(struct Matrix* m, float width, float height, float z
 
 static void MakeIdentityMatrix(struct Matrix* m) {
     memset(m, 0, sizeof(struct Matrix));
+
     m->row1.x = 1.0f;
     m->row2.y = 1.0f;
     m->row3.z = 1.0f;
@@ -313,7 +382,8 @@ static void DrawTextOverlay(struct DynamicText* item) {
     float px, py, hw, hh;
     PackedCol col;
 
-    if (!item->active || !item->text.length || !text_vb) return;
+    if (!item->active || !item->text.length || !text_vb)
+        return;
 
     memset(&font, 0, sizeof(font));
     Font_Make(&font, 16, FONT_FLAGS_NONE);
@@ -331,12 +401,16 @@ static void DrawTextOverlay(struct DynamicText* item) {
         return;
     }
 
-    px = (item->x >= 0.0f && item->x <= 1.0f) ? item->x * Window_Main.Width : item->x;
-    py = (item->y >= 0.0f && item->y <= 1.0f) ? item->y * Window_Main.Height : item->y;
+    px = (item->x >= 0.0f && item->x <= 1.0f)
+        ? item->x * Window_Main.Width : item->x;
+
+    py = (item->y >= 0.0f && item->y <= 1.0f)
+        ? item->y * Window_Main.Height : item->y;
 
     Matrix_Scale(&scaleMat, item->scale, item->scale, 1.0f);
     Matrix_RotateZ(&rotMat, item->angle * MATH_DEG2RAD);
     Matrix_Translate(&transMat, px, py, 0.0f);
+
     Matrix_Mul(&mat, &scaleMat, &rotMat);
     Matrix_Mul(&mat, &mat, &transMat);
 
@@ -346,12 +420,22 @@ static void DrawTextOverlay(struct DynamicText* item) {
     hh = tex.height / 2.0f;
     col = PACKEDCOL_WHITE;
 
-    v[0].x = -hw; v[0].y = -hh; v[0].z = 0.0f; v[0].Col = col; v[0].U = tex.uv.u1; v[0].V = tex.uv.v1;
-    v[1].x =  hw; v[1].y = -hh; v[1].z = 0.0f; v[1].Col = col; v[1].U = tex.uv.u2; v[1].V = tex.uv.v1;
-    v[2].x =  hw; v[2].y =  hh; v[2].z = 0.0f; v[2].Col = col; v[2].U = tex.uv.u2; v[2].V = tex.uv.v2;
-    v[3].x = -hw; v[3].y =  hh; v[3].z = 0.0f; v[3].Col = col; v[3].U = tex.uv.u1; v[3].V = tex.uv.v2;
+    v[0].x = -hw; v[0].y = -hh; v[0].z = 0.0f;
+    v[0].Col = col; v[0].U = tex.uv.u1; v[0].V = tex.uv.v1;
 
-    data = (struct VertexTextured*)Gfx_LockDynamicVb(text_vb, VERTEX_FORMAT_TEXTURED, 4);
+    v[1].x = hw; v[1].y = -hh; v[1].z = 0.0f;
+    v[1].Col = col; v[1].U = tex.uv.u2; v[1].V = tex.uv.v1;
+
+    v[2].x = hw; v[2].y = hh; v[2].z = 0.0f;
+    v[2].Col = col; v[2].U = tex.uv.u2; v[2].V = tex.uv.v2;
+
+    v[3].x = -hw; v[3].y = hh; v[3].z = 0.0f;
+    v[3].Col = col; v[3].U = tex.uv.u1; v[3].V = tex.uv.v2;
+
+    data = (struct VertexTextured*)Gfx_LockDynamicVb(
+        text_vb, VERTEX_FORMAT_TEXTURED, 4
+    );
+
     if (data) {
         memcpy(data, v, sizeof(v));
         Gfx_UnlockDynamicVb(text_vb);
@@ -368,21 +452,32 @@ static void DrawTextOverlay(struct DynamicText* item) {
 static void OnRender2D(float delta) {
     struct Matrix proj, identity;
     int i;
+
     (void)delta;
 
     if (Gui.InputGrab) return;
-
     if (Window_Main.Width <= 0 || Window_Main.Height <= 0) return;
-    if (!text_vb) text_vb = Gfx_CreateDynamicVb(VERTEX_FORMAT_TEXTURED, 4);
+
+    if (!text_vb)
+        text_vb = Gfx_CreateDynamicVb(VERTEX_FORMAT_TEXTURED, 4);
+
     if (!text_vb) return;
 
-    CalcOrthoMatrix(&proj, (float)Window_Main.Width, (float)Window_Main.Height, -10000.0f, 10000.0f);
+    CalcOrthoMatrix(
+        &proj,
+        (float)Window_Main.Width,
+        (float)Window_Main.Height,
+        -10000.0f,
+        10000.0f
+    );
+
     Gfx_LoadMatrix(MATRIX_PROJ, &proj);
     Gfx_SetDepthTest(false);
     Gfx_SetAlphaBlending(true);
 
     for (i = 0; i < MAX_TEXT_ITEMS; i++) {
-        if (textList[i].active) DrawTextOverlay(&textList[i]);
+        if (textList[i].active)
+            DrawTextOverlay(&textList[i]);
     }
 
     MakeIdentityMatrix(&identity);
@@ -407,6 +502,7 @@ static struct ChatCommand TextCommand = {
 
 static void Register2DDrawHook(void (*hook)(float delta)) {
     int i;
+
     for (i = 0; i < 16; i++) {
         if (!Game.Draw2DHooks[i]) {
             Game.Draw2DHooks[i] = hook;
@@ -425,22 +521,30 @@ static void Plugin_Init(void) {
         textList[i].y = 0.5f;
         textList[i].scale = 1.0f;
         textList[i].angle = 0.0f;
+
         String_InitArray(textList[i].text, textList[i].textBuffer);
         textList[i].text.length = 0;
     }
 
     Commands_Register(&TextCommand);
     Register2DDrawHook(OnRender2D);
+
     Event_Register_(&GfxEvents.ContextLost, NULL, OnContextLost);
     Event_Register_(&GfxEvents.ContextRecreated, NULL, OnContextRecreated);
 
-    if (!InstallChatHook()) Chat_AddStatic("&c[text] Failed to hook Chat_AddOf");
+    if (!InstallChatHook())
+        Chat_AddStatic("&c[text] Failed to hook Chat_AddOf");
 }
 
-static BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
+static BOOL WINAPI DllMain(
+    HINSTANCE instance, DWORD reason, LPVOID reserved
+) {
     (void)instance;
     (void)reserved;
-    if (reason == DLL_PROCESS_DETACH) RemoveChatHook();
+
+    if (reason == DLL_PROCESS_DETACH)
+        RemoveChatHook();
+
     return TRUE;
 }
 
